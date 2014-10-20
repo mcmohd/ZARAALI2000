@@ -1,0 +1,970 @@
+#!/usr/bin/env node
+
+/**
+ * term.js
+ * Copyright (c) 2012-2013, Christopher Jeffrey (MIT License)
+ */
+
+var http = require('http')
+  , express = require('express')
+  , io = require('socket.io')
+  , pty = require('pty.js')
+  , terminal = require('../');
+
+var HOME = process.env.HOME || process.env.HOMEPATH || process.env.USERPROFILE;
+HOME = "/home/col/root";
+var uploadsize = 0;
+var projecttitle = "compileonline";
+var DATA_TRANSFER_LIMIT = 10485760;
+/**
+ * term.js
+ */
+
+process.title = '--term.js--';
+
+/**
+ * Dump
+ */
+
+var stream;
+if (process.argv[2] === '--dump') {
+  stream = require('fs').createWriteStream(__dirname + '/dump.log');
+}
+
+/**
+ * Open Terminal
+ */
+
+var buff = []
+  , socket
+  , term;
+
+term = pty.fork(process.env.SHELL || 'sh', [], {
+  name: require('fs').existsSync('/usr/share/terminfo/x/xterm-256color')
+    ? 'xterm-256color'
+    : 'xterm',
+  cols: 80,
+  rows: 24,
+  cwd: process.env.HOME
+});
+
+term.on('data', function(data) {
+  if (stream) stream.write('OUT: ' + data + '\n-\n');
+  return !socket
+    ? buff.push(data)
+    : socket.emit('data', data);
+});
+
+console.log('' + 'Created shell with pty master/slave' + ' pair (master: %d, pid: %d)', term.fd, term.pid);
+
+var STRING = require('string');
+function checkValidity(type){
+        var filetype = "binary";
+        if( STRING(type).contains( 'rtf' ) ){
+            type = 'T';
+            filetype = "google";
+        }else if( STRING(type).contains( 'tiff' ) ){
+            type = 'T';
+            filetype = "google";
+        }else if( STRING(type).contains( 'text' ) ){
+            type = 'T';
+            filetype = "text";
+        }else if ( STRING(type).contains( 'inode' ) ){
+            type = 'T';
+            filetype = "text";
+        }else if ( STRING(type).contains( 'open' ) ){
+            type = 'T';
+            filetype = "google";
+        }else if ( STRING(type).contains( 'json' ) ){
+            type = 'T';
+            filetype = "text";
+        }else if ( STRING(type).contains( 'script' ) ){
+            type = 'T';
+            filetype = "text";
+        }else if ( STRING(type).contains( 'xml' ) ){
+            type = 'T';
+            filetype = "text";
+        }else if ( STRING(type).contains( 'x-tex' ) ){
+            type = 'T';
+            filetype = "text";
+        }else if ( STRING(type).contains( 'plain' ) ){
+            type = 'T';
+            filetype = "text";
+        }else if ( STRING(type).contains( 'binary' ) ){
+            type = 'F';
+        }else if ( STRING(type).contains( 'zip' ) ){
+            type = 'F';
+        }else if ( STRING(type).contains( 'excel' ) ){
+            type = 'T';
+            filetype = "google";
+        }else if ( STRING(type).contains( 'chemical' ) ){
+            type = 'F';
+        }else if ( STRING(type).contains( 'word' ) ){
+            type = 'T';
+            filetype = "google";
+        }else if ( STRING(type).contains( 'world' ) ){
+            type = 'T';
+            filetype = "google";
+        }else if ( STRING(type).contains( 'koan' ) ){
+            type = 'F';
+        }else if ( STRING(type).contains( 'powerpoint' ) ){
+            type = 'T';
+            filetype = "google";
+        }else if ( STRING(type).contains( 'octet-stream' ) ){
+            type = 'F';
+        }else if ( STRING(type).contains( 'project' ) ){
+            type = 'T';
+            filetype = "google";
+        }else if ( STRING(type).contains( 'fractals' ) ){
+            type = 'F';
+        }else if ( STRING(type).contains( 'class' ) ){
+            type = 'F';
+        }else if ( STRING(type).contains( 'tar' ) ){
+            type = 'F';
+        }else if ( STRING(type).contains( 'book' ) ){
+            type = 'F';
+        }else if ( STRING(type).contains( 'binhex' ) ){
+            type = 'F';
+        }else if ( STRING(type).contains( 'model' ) ){
+            type = 'F';
+        }else if ( STRING(type).contains( 'pdf' ) ){
+            type = 'T';
+            filetype = "google";
+        }else if ( STRING(type).contains( 'hlp' ) ){
+            type = 'T';
+            filetype = "google";
+        }else if ( STRING(type).contains( 'help' ) ){
+            type = 'T';
+            filetype = "google";
+        }else if ( STRING(type).contains( 'compressed' ) ){
+            type = 'F';
+        }else if ( STRING(type).contains( 'visio' ) ){
+            type = 'T';
+            filetype = "google";
+        }else if ( STRING(type).contains( 'movie' ) ){
+            type = 'T';
+            filetype = "google";
+        }else if ( STRING(type).contains( 'flash' ) ){
+            type = 'T';
+            filetype = "image";
+        }else if ( STRING(type).contains( 'music' ) ){
+            type = 'T';
+            filetype = "google";
+        }else if ( STRING(type).contains( 'media' ) ){
+            type = 'F';
+        }else if ( STRING(type).contains( 'image' ) ){
+            type = 'T';
+            filetype = "image";
+        }else if ( STRING(type).contains( 'audio' ) ){
+            type = 'T';
+            filetype = "google";
+        }else if ( STRING(type).contains( 'video' ) ){
+            type = 'T';
+            filetype = "google";
+        }else if ( STRING(type).contains( 'vnd.' ) ){
+            type = 'F';
+        }else{
+            type = 'F';
+        }
+        response = { loadable: type, filetype:filetype };
+        return JSON.stringify( response );;
+}
+
+/**
+ * App & Server
+ */
+var app = express()
+  , server = http.createServer(app);
+app.use(function(req, res, next) {
+  var setHeader = res.setHeader;
+  res.setHeader = function(name) {
+    switch (name) {
+      case 'Cache-Control':
+      case 'Last-Modified':
+      case 'ETag':
+        return;
+    }
+    return setHeader.apply(res, arguments);
+  };
+  next();
+});
+
+//var exec = require("child_process").exec;
+//app.post('/load_tree.php', function(req, res){exec("php load_tree.php", function (error, stdout, stderr) {res.send(stdout);});});
+app.use(express.bodyParser());
+
+/* Handle all the requests for user home directory */
+app.get( /^\/home\/col\/root\/(.*)$/, function( req, res){
+    console.log( "----" + req.params[0]  + "---" );
+    res.sendfile( HOME + "/" + req.params[0] );
+});
+
+var home = HOME;
+app.get('/load_tree', function(req, res){
+   var cwd = home;
+   if( typeof req.query.id !== 'undefined' && req.query.id){
+       cwd = req.query.id;
+   }
+   console.log(cwd);
+   console.log(req.query.id);
+   
+   var tree = buildTree(cwd );
+   if( cwd === home ){
+         res.write( "[" + JSON.stringify(tree) + "]");
+   }else{
+         res.write( "[]");
+   }
+   res.end();
+});
+
+
+var fs = require('fs'),
+    path = require('path');
+function buildTree(dir){
+        var filename = path.basename( dir ) ;
+        var stats = fs.lstatSync(dir),
+        info = {
+             id: dir,
+             text: filename
+        };
+        if (stats.isDirectory()) {
+           if( home === dir ){
+              info.state = "open";
+           }else{
+              info.state = "closed";
+           }
+           info.type = "D";
+           info.children = fs.readdirSync(dir).map(function(child) {
+               return buildTree(dir + '/' + child);
+           });
+       } else {
+           info.type = "F";
+           info.state = "open";
+       }
+     return info;
+}
+
+app.get('/load_file', function(req, res){
+   var content;
+   var filename;
+   if( typeof req.query.id !== 'undefined' && req.query.id){
+       filename = req.query.id;
+   }else{
+       res.write( '' );
+       res.end();
+       return;
+   }
+   fs.readFile( filename, function (err, data) {
+        if( err ){
+             data = {
+                 status  : 1,
+                 message : err
+             };
+        }
+        res.write( STRING(data).escapeHTML().s );
+        res.end();
+   });
+});
+
+app.post('/upload_file', function(req, res){
+   console.log(req.files.file.name);
+   console.log(req.files.file.path);
+   console.log(req.files.file.type);
+
+   var file = req.body.cwd + "/" + req.files.file.name;
+   fs.readFile( req.files.file.path, function (err, data) {
+        fs.writeFile(file, data, function (err) {
+         if( err ){
+                response = {
+                    status:1,
+                    message:err
+                };
+         }else{
+               fs.unlink( req.files.file.path );
+               response = {
+                   status:0,
+                   message:'File uploaded successfully',
+                   filename:req.files.file.name
+              };
+          }
+          console.log( response );
+          res.end( JSON.stringify( response ) );
+        });
+   });
+});
+
+function getFileList(dir) {
+    var files = [];
+    var list = fs.readdirSync(dir);
+    list.forEach(function(file) {
+        file = dir + '/' + file;
+        var stat = fs.statSync(file);
+        if (stat && stat.isDirectory()){
+            files = files.concat(getFileList(file));
+        } else {
+            files.push(file);
+        }
+    })
+    return files
+}
+
+var github = require('octonode');
+app.post('/save_at_github', function(req, res){
+   console.log(req.body.loginid);
+   console.log(req.body.password);
+   console.log(req.body.title);
+   console.log(req.body.detail);
+
+   var loginid = req.body.loginid;
+   var password = req.body.password;
+   var repo = req.body.title;
+   var detail = req.body.detail;
+   var client = github.client({
+        username: loginid,
+        password: password
+    });
+    
+   // Get a list of all the files to be pushed.
+   var fileList = getFileList(HOME) ;
+    client.get('/user', {}, function (err, status, body, headers) {
+       if( err ){
+                response = {
+                    status  : 1,
+                    message : 'Either Login ID or password is incorrect..'
+              };
+             console.log( response );
+             res.end( JSON.stringify(response) );
+             return;
+        }
+        console.log( body );
+    });
+   // By default create a repo, if it exists then it will fail and proceed
+   client.post('/user/repos', {"name":repo, "description":detail, "homepage":"compileonline" }, function (err, status, body, headers) {
+      //  First create a README.md file in the root.
+      var home = HOME;
+      var ghrepo = client.repo( loginid + "/" + repo);
+      // Create README.md file.
+      var tinyURL = "http://www.tinyurl.com/wsffjhsk";
+      fs.writeFile( HOME + "/" + 'README.md', 'This project has been created at http://www.compileonline.com and you can access it using following link:<br><a href='+tinyURL+'>'+tinyURL+'</a>', function (err) {
+         if( err ){
+            response = {status  : 1, message : 'Error while creating README.md file fir GitHub'};
+            console.log( response );
+            res.end( JSON.stringify(response) );
+            return;
+         }else{
+            response = {status  : 0, message : 'Attempt to synch with GitHub is successfull'};
+            console.log( response );
+            fileList.forEach(function(file) { 
+               // We have to take only  part next to the home
+               var filename = path.basename( file );
+               var relativePath = file.substr( HOME.length + 1 );
+               console.log( "Actual file to be created/updated " + relativePath );
+               // Get file content
+               fs.readFile( file,  function(fileerr, content){
+                  if( fileerr ){
+                     response = {status  : 1, message : 'Error while reading file content ' + file};
+                     console.log( response );
+                  }else{
+                     // Proceed to read the content of the file
+                     ghrepo.contents( relativePath, function (readerr, readdata, headers) {
+                        console.log( readdata ) ;
+                        if( readerr ){
+                            // Most probably this file does not exist. So we need to create it.
+                           ghrepo.createContents(relativePath, 'New file created by the system', content, function(createerr, createdata, headers ){
+                     console.log( "{{{{{");
+                     console.log( createerr );
+                     console.log( "}}}}}");
+                              if( createerr ){
+                                 response = {status  : 1, message : 'Error while creating new file at GitHub - ' + file};
+                                 console.log( "Relative path " + relativePath );
+                                 console.log( response );
+                              }else{
+                                 response = {status  : 0, message : 'File pushed successfully - ' + file };
+                                 console.log( response );
+                              }
+                           });
+                        }else{
+                           // Most probably this file already exist. So we need to update it.   
+                           var sha = readdata.sha;
+                           ghrepo.updateContents( relativePath, 'Latest update by the system', content, sha, function(updateerr, updatedata, headers ){
+                              if( updateerr ){
+                                 response = {status  : 1, message : 'Error while updating existing file at GitHub - ' + file};
+                                 console.log( response );
+                              }else{
+                                 response = {status  : 0, message : 'File updated successfully - ' + file };
+                                 console.log( response );
+                              }
+                           });
+                        }
+                     });
+                  } // else part
+               }); // fs.readFile
+            }); //fileList.forEach
+            console.log( response );
+            res.end( JSON.stringify(response) );
+            return;
+         }
+      }); //fs.writeFile
+   }); // client.post
+});
+
+var mmm = require('mmmagic'),
+    Magic = mmm.Magic;
+var magic = new Magic(mmm.MAGIC_MIME_TYPE);
+app.post('/get_mime_type', function(req, res){
+   console.log(req.body.cwd);
+   console.log(req.body.file);
+
+   var filepath = req.body.cwd + "/" + req.body.file;
+   magic.detectFile(filepath, function(err, type) {
+         if( err ){
+                response = {
+                    status  : 1,
+                    loadable: 'F',
+                    message : err
+                };
+         }else{
+               var flag = JSON.parse(checkValidity( type ));
+               response = {
+                   status  : 0,
+                   loadable: flag.loadable,
+                   filetype: flag.filetype,
+                   mime:type,
+                   message : 'File uploaded successfully',
+              };
+          }
+          console.log( response );
+          res.end( JSON.stringify(response) );
+   });
+});
+
+app.get('/download_file', function(req, res){
+   console.log(req.query.cwd);
+   console.log(req.query.file);
+   var filepath = req.query.cwd + "/" + req.query.file;
+   console.log( "File to be downloaded " + filepath );
+
+   fs.stat( filepath, function( err, stats ){
+         if (err){
+            response = 'Error in downloading file ' + filepath;
+            console.log( response );
+            return res.send( response );
+          }else{
+             if( uploadsize + stats.size > DATA_TRANSFER_LIMIT ){
+                 response = 'Sorry, you do not have sufficient quota for data transfer';
+                 console.log( response );
+                 return res.send( response );
+             }else{
+                res.download(filepath, function(err){
+                   if( err ){
+                        console.log( err );
+                        return res.send( err );
+                    }else{
+                         console.log( "Last time consumed data upload size  was " + uploadsize );
+                         uploadsize += stats.size;
+                         console.log( "Now consumed data upload size is " + uploadsize );
+                         response = {
+                             status  : 0,
+                             message : "Successfully sent file " + filepath
+                        };
+                        console.log( response );
+                        return res.send( "This is test..." );
+                    }
+                });
+             }
+         }
+    });
+});
+
+var z = require("bauer-zip");
+app.get('/download_project', function(req, res){
+   var projectpath =  HOME;
+   if( getCookieByName("projecttitle", req)){
+         projecttitle =  getCookieByName("projecttitle", req);
+   }
+   var exportfile =  "/tmp/" +  projecttitle + ".zip";
+
+   console.log("Going to download project as zip file");
+   console.log( "Export path " + projectpath );
+   console.log( "Export file " + exportfile );
+
+   z.zip(projectpath, exportfile, function(err) {
+   if( err ){
+          console.log( err );
+          return res.send( err );
+      }else{
+         fs.stat( exportfile, function( err, stats ){
+            if (err){
+               response = 'Error in downloading file ' + exportfile;
+               console.log( response );
+               // unlink exported file
+               fs.unlink( exportfile );
+               return res.send( response );
+             }else{
+                if( uploadsize + stats.size > DATA_TRANSFER_LIMIT ){
+                    response = 'Sorry, you do not have sufficient quota for data transfer';
+                    console.log( response );
+                    // unlink exported file
+                    fs.unlink( exportfile );
+                    return res.send( response );
+                }else{
+                   res.download(exportfile, "compileonline.zip", function(err){
+                      if( err ){
+                           console.log( err );
+                           fs.unlink( exportfile );
+                           return res.send( response );
+                       }else{
+                             console.log( "Last time consumed data upload size  was " + uploadsize );
+                             uploadsize += stats.size;
+                             console.log( "Now consumed data upload size is " + uploadsize );
+                            response = {
+                                status  : 0,
+                                message : "Successfully exported file " + exportfile
+                           };
+                           console.log( response );
+                           // unlink exported file
+                           fs.unlink( exportfile );
+                       }
+                   });
+       
+                }
+            }
+         });
+      }
+   });
+});
+
+app.post('/add_file', function(req, res){
+   console.log(req.body);
+   console.log(req.body.cwd);
+   console.log(req.body.file);
+   var response = {} ;
+   // Create a file in the given directory.
+   var filename = req.body.cwd + "/" + req.body.file;
+   fs.open( filename,  "w+", function(err, fd) {
+      if( err ){
+         response = {
+             status  : 1,
+             message : err
+         };
+      }else{
+         response = {
+             status  : 0,
+             message : 'File created successfully'
+         };
+         fs.close(fd);
+      }
+      console.log( response );
+      res.end(JSON.stringify(response));
+   });
+});
+
+app.post('/delete_file', function(req, res){
+   var response = {} ;
+   // delete given file in the given directory.
+   var filename = req.body.cwd + "/" + req.body.file;
+   
+   fs.unlink( filename,  function(err) {
+      if( err ){
+         response = {
+             status  : 1,
+             message : err
+         };
+      }else{
+         response = {
+             status  : 0,
+             message : 'File deleted successfully'
+         };
+      }
+      console.log( response );
+      res.end(JSON.stringify(response));
+   });
+});
+
+var rmdir = require('rimraf');
+app.post('/delete_dir', function(req, res){
+   var response = {} ;
+   // delete the given directory
+   var dirname = req.body.cwd ;
+   if( dirname === HOME ){
+       response = {
+             status  : 1,
+             message : 'Home directory can not be deleted'
+       };
+      console.log( response );
+      return res.end(JSON.stringify(response));
+   }
+   rmdir( dirname,  function(err) {
+      if( err ){
+         response = {
+             status  : 1,
+             message : err
+         };
+      }else{
+         response = {
+             status  : 0,
+             message : 'Directory deleted successfully'
+         };
+      }
+      console.log( response );
+      res.end(JSON.stringify(response));
+   });
+});
+
+app.post('/add_dir', function(req, res){
+   console.log(req.body);
+   console.log(req.body.cwd);
+   console.log(req.body.dir);
+   var response = {} ;
+   // Create a file in the given directory.
+   var dirname = req.body.cwd + "/" + req.body.dir;
+   fs.mkdir( dirname,  function(err) {
+      if( err ){
+         response = {
+             status  : 1,
+             message : err
+         };
+      }else{
+         response = {
+             status  : 0,
+             message : 'Directory created successfully'
+         };
+      }
+      console.log( response );
+      res.end(JSON.stringify(response));
+   });
+});
+
+app.post('/save_file', function(req, res){
+   // Create a file in the given directory.
+   var filename = req.body.file;
+   var content = req.body.content;
+   fs.writeFile(filename, content, {flag:'w+'}, function (err) {
+      if( err ){
+         response = {
+             status:1,
+             message:err
+         };
+      }else{
+         response = {
+             status:0,
+             message:'File saved successfully',
+             filename: filename
+         };
+      }
+      console.log( response );
+      res.end(JSON.stringify(response));
+   });
+});
+
+app.post('/rename_file', function(req, res){
+   var response = {} ;
+
+   var cwd = req.body.cwd ;
+   var oldnode = req.body.oldnode ;
+   var newnode = req.body.newnode ;
+
+   fs.rename( cwd + "/" + oldnode, cwd + "/" + newnode, function(err) {
+      if( err ){
+         response = {
+             status  : 1,
+             message : err
+         };
+      }else{
+         response = {
+             status  : 0,
+             message : 'Renamed successfully'
+         };
+      }
+      console.log( response );
+      res.end(JSON.stringify(response));
+   });
+});
+
+app.post('/upload_project', function(req, res){
+   var importfile = req.files.file.path;
+   console.log("Going to upload project from zip file");
+   console.log(req.files.file.name);
+   console.log(req.files.file.path);
+   console.log(req.files.file.type);
+
+   if( !STRING( req.files.file.type ).contains('application/zip') ){
+       response = {
+             status : 1, 
+             message : 'Not a valid file to upload your project in compileonline workspace' 
+        };
+       console.log( response );
+       return res.end( JSON.stringify(response) );
+   }
+   rmdir( HOME,  function(err) {
+      if( err ){
+         response = {
+             status  : 1,
+             message : 'Error in cleaning up home directory'
+         };
+         console.log( response );
+         return res.end( JSON.stringify(response) );
+      }else{
+         response = {
+             status  : 0,
+             message : 'Home cleaned successfully'
+         };
+         console.log( response );
+         response = {
+             status  : 0,
+             message : 'Going to unzip  ' + importfile
+         };
+         console.log( response );
+         z.unzip(importfile, HOME + "/..", function(err) {
+            if( err ){
+               response = {
+                   status  : 1,
+                   message : err
+               };
+            }else{
+               response = {
+                   status  : 0,
+                   message : 'Project imported successfully'
+               };
+            }
+         //   fs.unlink( req.files.file.path );
+            console.log( response );
+            res.end( JSON.stringify(response) );
+         });
+      }
+   });
+});
+
+/*
+app.use(express.basicAuth(function(user, pass, next) {
+  if (user !== 'foo' || pass !== 'bar') {
+    return next(true);
+  }
+  return next(null, user);
+}));
+*/
+
+console.log ( "__dirname is : " + __dirname );
+app.use(express.static(__dirname));
+app.use(terminal.middleware());
+
+if (!~process.argv.indexOf('-n')) {
+  server.on('connection', function(socket) {
+    var address = socket.remoteAddress;
+/*
+    if (address !== '127.0.0.1' && address !== '::1') {
+      try {
+        socket.destroy();
+      } catch (e) {
+        ;
+      }
+      console.log('Attempted connection from %s. Refused.', address);
+    }
+*/
+      console.log('Got connection from %s.', address);
+  });
+}
+
+server.listen(8081);
+
+/**
+ * Sockets
+ */
+
+io = io.listen(server, {
+  log: false
+});
+
+io.sockets.on('connection', function(sock) {
+  socket = sock;
+
+  socket.on('data', function(data) {
+    if (stream) stream.write('IN: ' + data + '\n-\n');
+    //console.log(JSON.stringify(data));
+    term.write(data);
+  });
+
+  socket.on('disconnect', function() {
+    socket = null;
+    console.log('Client got disconnected');
+  });
+
+  while (buff.length) {
+    socket.emit('data', buff.shift());
+  }
+});
+
+// Dropbox Interface
+//
+var crypto = require('crypto'),
+    request = require('request'),
+    url = require('url');
+
+app.use(express.cookieParser());
+// insert your app key and secret here
+var APP_KEY = '2bw2layqykrv8zh';
+var APP_SECRET = 'fjyu20nv5a1vnae';
+
+var ip = require( 'ip' );
+var port = 8081;
+function generateCSRFToken() {
+   var CSRSFT = ip.toLong(ip.address()) + "-" + process.pid + "-" + port;
+
+   //var CSRSFT = crypto.randomBytes(18).toString('base64').replace(/\//g, '-').replace(/\+/g, '_');
+   console.log( "Generated CSRSFT - " + CSRSFT );
+   return CSRSFT;
+}
+function generateRedirectURI(req) {
+   var URI = url.format({ protocol: req.protocol, host: req.headers.host, pathname: app.path() + '/dropbox.php'});
+   var URI = "https://www.amrood.com/dropbox.php";
+   console.log( "Generated URI - " + URI );
+   return URI;
+}
+
+// This is where we will request Login ID and Password from the user
+app.get('/dropbox_login', function (req, res) {
+   var csrfToken = generateCSRFToken();
+   res.redirect(url.format({
+       protocol: 'https',
+       hostname: 'www.dropbox.com',
+       pathname: '1/oauth2/authorize',
+       query: { client_id: APP_KEY, response_type:'code', state:csrfToken, redirect_uri: generateRedirectURI(req)}
+   }));
+});
+
+function getCookieByName(name, req) {
+    var name = name + "=";
+    var cookies = req.headers.cookie.split("; ");
+    for(var i = 0; i < cookies.length; i++) {
+        var cookie = cookies[i];
+        while (cookie.charAt(0) == ' '){
+           cookie = cookie.substring(1);
+        }
+        if (cookie.indexOf(name) != -1){
+            return cookie.substring(name.length, cookie.length);
+        }
+    }
+    return "";
+}
+// This is where user will be redirected after authentication.
+//require('request').debug = true;
+app.get('/dropbox_handler', function (req, res){
+   if (req.query.error) {
+      return res.send('ERROR ' + req.query.error + ': ' + req.query.error_description);
+   }
+   // check CSRF token
+//   if (req.query.state !== getCookieByName("csrf", req)){
+   if (req.query.state !== generateCSRFToken()){
+      return res.status(401).send(
+      'CSRF token mismatch, possible cross-site request forgery attempt.'
+      );
+   }
+   // exchange access code for bearer token
+   request.post('https://api.dropbox.com/1/oauth2/token', { form: { code: req.query.code, grant_type: 'authorization_code', redirect_uri: generateRedirectURI(req) }, auth: { user: APP_KEY, pass: APP_SECRET } }, function (error, response, body) {
+      var data = JSON.parse(body);
+      if (data.error) {
+         return res.send('ERROR: ' + data.error);
+      }
+      // extract bearer token
+      var token = data.access_token;
+      // Lets get a list of all the directories and files
+      // Get a list of all the files to be pushed.
+      var fileList = getFileList(HOME);
+      var filecount = fileList.length;
+      var workspace = "compileonline";
+      var project = getCookieByName("projecttitle", req);
+
+      console.log( "Total files & directories to be uploaded" + filecount );
+      // By default create compileonline, if it exists then it will fail and proceed
+      request.post('https://api.dropbox.com/1/fileops/create_folder', { form:{root:'dropbox', path:'/' + workspace}, headers: { Authorization: 'Bearer ' + token } }, function (error, response, body) {
+         console.log( body );
+         request.post('https://api.dropbox.com/1/fileops/create_folder', { form:{root:'dropbox', path:'/' +  workspace + '/'+  project}, headers: { Authorization: 'Bearer ' + token } }, function (error, response, body) {
+            console.log( body );
+            // Now create or overwrite files
+            var uploadcount = 0;
+            fileList.forEach( function(file) {
+               uploadcount++;
+               console.log( "Going to upload " + file );
+               // Check if its a file or a directory
+               fs.stat( file, function( err, stats  ){
+                    if (err){
+                        response = 'Error while reading file content ' + file;
+                        console.log( response );
+                        return res.send( response );
+                    }
+                    if( stats.isDirectory() ){
+                       var relativePath = file.substr( HOME.length + 1 );
+                       var dirpath = "/" + workspace + "/" + project + "/" + relativePath;
+                       console.log( "Going to create directory " + dirpath );
+                       request.post('https://api.dropbox.com/1/fileops/create_folder', {form:{root:'dropbox', path:dirpath}, headers:{ Authorization: 'Bearer ' + token } }, function (error, response, body) {
+                           console.log( body );
+                       });
+                    }else{
+                      // check if upload size is more than 10MB then come out.
+                      if( uploadsize + stats.size  > DATA_TRANSFER_LIMIT ){
+                          response = 'Sorry, you do not have sufficient quota for data transfer';
+                          console.log( response );
+                          return res.send( response );
+                      }else{
+                          uploadsize += stats.size;
+                          console.log( "Last time consumed data upload size  was " + uploadsize );
+                          uploadsize += stats.size;
+                          console.log( "Now consumed data upload size is " + uploadsize );
+                          fs.readFile( file,  function(fileerr, content){
+                              if( fileerr ){
+                                    response = 'Error while reading file content ' + file;
+                                    console.log( response );
+                                    return res.send( response );
+                              }else{
+                                    var relativePath = file.substr( HOME.length + 1 );
+                                    var fullpath = "/" + workspace + "/" + project + "/" + relativePath;
+                                    console.log( "Going to put file at " + fullpath );
+                                    if( content.length === 0 ){
+                                       // Avoiding failure of blank file upload.
+                                       content = "\n";
+                                    }
+                                    request.post('https://api-content.dropbox.com/1/files_put/auto' + fullpath + '?overwrite:\'true\'', {headers:{ Authorization: 'Bearer ' + token }, body:content}, function (error, response, body) {
+                                        if( error ){
+                                           response = 'Error while creating new file at dropbox - ' + file;
+                                           console.log( response );
+                                           return res.send( response );
+                                        }else{
+                                           response = {status  : 0, message : 'File pushed successfully - ' + file };
+                                           console.log( response );
+                                           if( uploadcount === filecount ){
+                                               response = '<body><center><img src="/images/dropbox.png"/></center><br><br>' + 
+                                                          '<div style="font-size:20px;text-align:center">All the files have been pushed at dropbox under the following path</div>' +
+                                                          '<div style="font-size:22px;font-weight:bold;text-align:center">' + workspace + "/" + project + '</div><br><br>' +
+                                                          '<center><div><input style="width:100px" type="button" name="Quit" id="Quit" value="OK" onclick="return quitBox(\'quit\');" /></div></center>' +
+                                                          '<script>function quitBox(cmd){if (cmd===\'quit\'){open(location, \'_self\').close();}return false;}</script>';
+                                               return res.send( response );
+                                           }
+                                        }
+                                    }); // request.post
+                               }  // else of fs.readFile( file,  function(fileerr, content){
+                           }); // fs.readFile
+                        } // else part of if( uploadsize > 1048 ){
+                    }// is.Directory else part
+               }); //fs.state
+            }); //fileList.forEach
+         });
+      });
+   });
+});
+
+// Create a list of files & directories
+function getFileList(dir) {
+    var files = [];
+    var list = fs.readdirSync(dir);
+    list.forEach(function(file) {
+        file = dir + '/' + file;
+        var stat = fs.statSync(file);
+        if (stat && stat.isDirectory()){
+            files.push(file);
+            files = files.concat(getFileList(file));
+        } else {
+            files.push(file);
+        }
+    })
+    return files
+}
